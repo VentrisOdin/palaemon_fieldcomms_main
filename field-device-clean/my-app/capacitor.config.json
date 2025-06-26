@@ -1,0 +1,10 @@
+{
+  "appId": "com.palaemon.field",
+  "appName": "Palaemon Field",
+  "webDir": "dist",
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false
+    }
+  }
+}

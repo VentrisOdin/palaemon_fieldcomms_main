@@ -1,17 +1,16 @@
-version: "3.9"
-
 services:
   backend:
     build:
       context: ./app/backend
     container_name: palaemon-backend
-    network_mode: "host"
+    network_mode: "host"  # needed for Tailscale access
     volumes:
       - ./app/backend:/app
       - /usr/bin/tailscale:/usr/bin/tailscale
       - /var/run/tailscale:/var/run/tailscale
     environment:
       - PYTHONUNBUFFERED=1
+    command: uvicorn main:app --host 0.0.0.0 --reload
 
   frontend:
     build:
@@ -22,4 +21,5 @@ services:
     volumes:
       - ./app/frontend:/app
       - /app/node_modules
+    working_dir: /app
     command: npm run dev -- --host
