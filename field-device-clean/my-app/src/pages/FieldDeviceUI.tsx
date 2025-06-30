@@ -9,7 +9,7 @@ import {
   Badge,
   useToast,
   Divider,
-  Spinner,
+  useColorModeValue,
 } from "@chakra-ui/react";
 import useGeolocation from "../hooks/useGeolocation";
 
@@ -23,30 +23,17 @@ interface Peer {
 
 const FieldDeviceUI: React.FC = () => {
   const [peers, setPeers] = useState<Peer[]>([]);
-  const [broadcasting, setBroadcasting] = useState(false);
-  const [locationText, setLocationText] = useState<string | null>(null);
+  const [broadcastingIPs, setBroadcastingIPs] = useState<string[]>([]);
   const location = useGeolocation();
   const toast = useToast();
 
-  const reverseGeocode = async (lat: number, lon: number) => {
-    try {
-      const res = await fetch(
-        `https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lon}&key=63a2a6868009483cbda7cf18d64fa29d`
-      );
-      const data = await res.json();
-      const place = data?.results?.[0]?.formatted || "Unknown location";
-      setLocationText(place);
-    } catch (err) {
-      console.error("❌ Reverse geocode failed", err);
-      setLocationText("Location lookup failed");
-    }
-  };
+  const bg = useColorModeValue("gray.100", "gray.900");
+  const cardBg = useColorModeValue("white", "gray.700");
+  const borderColor = useColorModeValue("gray.300", "gray.600");
 
-  // 🛰️ Post live location every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       if (!location) return;
-
       const payload = {
         device: window.location.hostname || "unknown-device",
         ip: "field-device",
@@ -54,25 +41,15 @@ const FieldDeviceUI: React.FC = () => {
         lon: location.lon,
         note: "Live field device",
       };
-
       fetch("http://localhost:8000/location", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }).catch((err) => console.error("❌ Location post failed", err));
     }, 10000);
-
     return () => clearInterval(interval);
   }, [location]);
 
-  // 📍 Reverse geocode when location changes
-  useEffect(() => {
-    if (location) {
-      reverseGeocode(location.lat, location.lon);
-    }
-  }, [location]);
-
-  // 🔁 Fetch peers every 30 seconds
   useEffect(() => {
     const fetchPeers = async () => {
       try {
@@ -90,29 +67,22 @@ const FieldDeviceUI: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleGlobalStart = async () => {
-    const onlineIps = peers
-      .filter((p) => p.Online && p.TailscaleIPs.length > 0)
-      .map((p) => p.TailscaleIPs[0]);
-
-    for (const ip of onlineIps) {
-      try {
-        await fetch(`http://localhost:8000/start?ip=${ip}`);
-      } catch (err) {
-        console.error(`❌ Failed to start stream for ${ip}`, err);
-      }
+  const startBroadcastTo = async (ip: string) => {
+    try {
+      await fetch(`http://localhost:8000/start?ip=${ip}`);
+      setBroadcastingIPs((prev) => [...prev, ip]);
+    } catch (err) {
+      console.error(`❌ Failed to start stream for ${ip}`, err);
     }
-
-    setBroadcasting(true);
   };
 
-  const handleGlobalStop = async () => {
+  const stopBroadcastTo = async (ip: string) => {
     try {
       await fetch("http://localhost:8000/stop");
     } catch (err) {
-      console.error("❌ Failed to stop broadcast", err);
+      console.error("❌ Failed to stop stream", err);
     }
-    setBroadcasting(false);
+    setBroadcastingIPs((prev) => prev.filter((v) => v !== ip));
   };
 
   const handleSOS = async () => {
@@ -161,94 +131,78 @@ const FieldDeviceUI: React.FC = () => {
     }
   };
 
-  const handleTalkToDevice = async (ip: string) => {
-    try {
-      await fetch(`http://localhost:8000/start?ip=${ip}`);
-      toast({
-        title: `Talking to ${ip}`,
-        description: "Stream started.",
-        status: "info",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (err) {
-      console.error("❌ Failed to talk to device", err);
-    }
-  };
-
   return (
-    <Box p={6} maxW="700px" mx="auto">
-      <VStack spacing={6} align="stretch">
-        <Heading size="lg" textAlign="center">
-          🛡️ Palaemon Field Device
-        </Heading>
+    <Box bg={bg} w="100vw" h="100vh" p={4} display="flex" alignItems="center" justifyContent="center">
+      <Box
+        bg={cardBg}
+        p={6}
+        borderRadius="xl"
+        boxShadow="xl"
+        maxW="lg"
+        w="100%"
+      >
+        <VStack spacing={6} align="stretch">
+          <Heading size="lg" textAlign="center">
+            🛟 Palaemon Field Device
+          </Heading>
 
-        <Box textAlign="center">
-          {locationText ? (
-            <Text fontSize="md" color="gray.600">
-              Current location: <b>{locationText}</b>
-            </Text>
-          ) : (
-            <Spinner size="sm" />
-          )}
-        </Box>
+          <HStack justify="center" spacing={4}>
+            <Button
+              onMouseDown={() => peers.forEach(p => p.Online && startBroadcastTo(p.TailscaleIPs[0]))}
+              onMouseUp={() => peers.forEach(p => p.Online && stopBroadcastTo(p.TailscaleIPs[0]))}
+              onTouchStart={() => peers.forEach(p => p.Online && startBroadcastTo(p.TailscaleIPs[0]))}
+              onTouchEnd={() => peers.forEach(p => p.Online && stopBroadcastTo(p.TailscaleIPs[0]))}
+              colorScheme={broadcastingIPs.length > 0 ? "red" : "blue"}
+              size="md"
+            >
+              {broadcastingIPs.length > 0 ? "🛑 Stop" : "📢 Broadcast to All"}
+            </Button>
 
-        <HStack justify="center" spacing={4}>
-          <Button
-            onMouseDown={handleGlobalStart}
-            onMouseUp={handleGlobalStop}
-            onTouchStart={handleGlobalStart}
-            onTouchEnd={handleGlobalStop}
-            colorScheme={broadcasting ? "red" : "blue"}
-            size="lg"
-          >
-            {broadcasting ? "🛑 Stop Broadcasting" : "📢 Broadcast to All"}
-          </Button>
+            <Button onClick={handleSOS} colorScheme="red" size="md">
+              🚨 Send SOS
+            </Button>
+          </HStack>
 
-          <Button
-            onClick={handleSOS}
-            colorScheme="red"
-            size="lg"
-            variant="solid"
-          >
-            🚨 Send SOS
-          </Button>
-        </HStack>
+          <Divider />
 
-        <Divider />
-
-        <Heading size="md">Connected Devices</Heading>
-        <VStack align="stretch" spacing={3}>
-          {peers.filter((p) => p.Online).length === 0 && (
-            <Text>No online devices.</Text>
-          )}
-
-          {peers
-            .filter((p) => p.Online)
-            .map((peer) => (
-              <HStack
-                key={peer.HostName}
-                justify="space-between"
-                p={3}
-                borderWidth={1}
-                borderRadius="lg"
-                boxShadow="sm"
-              >
-                <VStack align="start" spacing={0}>
-                  <Text fontWeight="bold">{peer.HostName}</Text>
-                  <Badge colorScheme="green">Online</Badge>
-                </VStack>
-
-                <Button
-                  colorScheme="blue"
-                  onClick={() => handleTalkToDevice(peer.TailscaleIPs[0])}
-                >
-                  🎤 Talk
-                </Button>
-              </HStack>
-            ))}
+          <Heading size="md">Connected Devices</Heading>
+          <VStack spacing={3} align="stretch">
+            {peers.filter((p) => p.Online).length === 0 && (
+              <Text>No online devices.</Text>
+            )}
+            {peers
+              .filter((p) => p.Online)
+              .map((peer) => {
+                const isBroadcasting = broadcastingIPs.includes(peer.TailscaleIPs[0]);
+                return (
+                  <HStack
+                    key={peer.HostName}
+                    justify="space-between"
+                    p={3}
+                    borderWidth={1}
+                    borderColor={borderColor}
+                    borderRadius="lg"
+                    bg={useColorModeValue("gray.50", "gray.800")}
+                  >
+                    <VStack align="start" spacing={0}>
+                      <Text fontWeight="bold">{peer.HostName}</Text>
+                      <Badge colorScheme="green">Online</Badge>
+                    </VStack>
+                    <Button
+                      colorScheme={isBroadcasting ? "red" : "blue"}
+                      onMouseDown={() => startBroadcastTo(peer.TailscaleIPs[0])}
+                      onMouseUp={() => stopBroadcastTo(peer.TailscaleIPs[0])}
+                      onTouchStart={() => startBroadcastTo(peer.TailscaleIPs[0])}
+                      onTouchEnd={() => stopBroadcastTo(peer.TailscaleIPs[0])}
+                    >
+                      {isBroadcasting ? "🛑 Stop" : "🎤 Talk"}
+                    </Button>
+                  </HStack>
+                );
+              })}
+          </VStack>
         </VStack>
-      </VStack>
+      </Box>
     </Box>
   );
 };
