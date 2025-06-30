@@ -9,6 +9,7 @@ import {
   Badge,
   useToast,
   Divider,
+  Spinner,
 } from "@chakra-ui/react";
 import useGeolocation from "../hooks/useGeolocation";
 
@@ -23,10 +24,25 @@ interface Peer {
 const FieldDeviceUI: React.FC = () => {
   const [peers, setPeers] = useState<Peer[]>([]);
   const [broadcasting, setBroadcasting] = useState(false);
+  const [locationText, setLocationText] = useState<string | null>(null);
   const location = useGeolocation();
   const toast = useToast();
 
-  // ⏱ Post live location every 10 seconds
+  const reverseGeocode = async (lat: number, lon: number) => {
+    try {
+      const res = await fetch(
+        `https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lon}&key=63a2a6868009483cbda7cf18d64fa29d`
+      );
+      const data = await res.json();
+      const place = data?.results?.[0]?.formatted || "Unknown location";
+      setLocationText(place);
+    } catch (err) {
+      console.error("❌ Reverse geocode failed", err);
+      setLocationText("Location lookup failed");
+    }
+  };
+
+  // 🛰️ Post live location every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       if (!location) return;
@@ -49,7 +65,14 @@ const FieldDeviceUI: React.FC = () => {
     return () => clearInterval(interval);
   }, [location]);
 
-  // 📡 Fetch peers every 30 seconds
+  // 📍 Reverse geocode when location changes
+  useEffect(() => {
+    if (location) {
+      reverseGeocode(location.lat, location.lon);
+    }
+  }, [location]);
+
+  // 🔁 Fetch peers every 30 seconds
   useEffect(() => {
     const fetchPeers = async () => {
       try {
@@ -154,11 +177,23 @@ const FieldDeviceUI: React.FC = () => {
   };
 
   return (
-    <Box p={6}>
+    <Box p={6} maxW="700px" mx="auto">
       <VStack spacing={6} align="stretch">
-        <Heading size="lg">Palaemon Field Device</Heading>
+        <Heading size="lg" textAlign="center">
+          🛡️ Palaemon Field Device
+        </Heading>
 
-        <HStack spacing={4}>
+        <Box textAlign="center">
+          {locationText ? (
+            <Text fontSize="md" color="gray.600">
+              Current location: <b>{locationText}</b>
+            </Text>
+          ) : (
+            <Spinner size="sm" />
+          )}
+        </Box>
+
+        <HStack justify="center" spacing={4}>
           <Button
             onMouseDown={handleGlobalStart}
             onMouseUp={handleGlobalStop}
@@ -176,7 +211,7 @@ const FieldDeviceUI: React.FC = () => {
             size="lg"
             variant="solid"
           >
-            🚨 Send SOS Alert
+            🚨 Send SOS
           </Button>
         </HStack>
 
@@ -197,6 +232,7 @@ const FieldDeviceUI: React.FC = () => {
                 p={3}
                 borderWidth={1}
                 borderRadius="lg"
+                boxShadow="sm"
               >
                 <VStack align="start" spacing={0}>
                   <Text fontWeight="bold">{peer.HostName}</Text>
